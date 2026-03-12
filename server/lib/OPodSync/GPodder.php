@@ -164,7 +164,7 @@ class GPodder
 
 	public function getUserToken(): ?string
 	{
-		if (null === $this->user->token) {
+		if (!isset($this->user->token) || null === $this->user->token) {
 			return null;
 		}
 

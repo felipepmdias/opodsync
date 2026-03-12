@@ -325,7 +325,7 @@ class API
 		$this->debug('Nextcloud compatibility: %s', $_SERVER['PHP_AUTH_USER']);
 
 		$db = DB::getInstance();
-		$user = $db->firstRow('SELECT id, password FROM users WHERE name = ?;', $_SERVER['PHP_AUTH_USER']);
+		$user = $db->firstRow('SELECT * FROM users WHERE name = ?;', $_SERVER['PHP_AUTH_USER']);
 
 		if (!$user) {
 			throw new APIException('Invalid username', 401);
