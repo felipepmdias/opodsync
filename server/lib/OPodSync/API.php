@@ -605,7 +605,27 @@ class API
 				$ts ??= isset($a['changed_ts']) ? (int) $a['changed_ts'] : time();
 
 				$a['timestamp'] ??= $to_iso8601($ts);
-				$a['started'] ??= $a['timestamp'];
+
+				// GNOME Podcasts expects "started" as an integer (unix timestamp).
+				if (!isset($a['started']) || $a['started'] === null || is_string($a['started'])) {
+					$a['started'] = $ts;
+				}
+
+				// GNOME Podcasts expects "position" to always be present (int, seconds).
+				if (!isset($a['position']) || $a['position'] === null || $a['position'] === '') {
+					$a['position'] = 0;
+				}
+				else {
+					$a['position'] = (int) $a['position'];
+				}
+
+				// GNOME Podcasts expects "total" to always be present (int, seconds).
+				if (!isset($a['total']) || $a['total'] === null || $a['total'] === '') {
+					$a['total'] = 0;
+				}
+				else {
+					$a['total'] = (int) $a['total'];
+				}
 
 				unset($a['changed_ts']);
 			}
