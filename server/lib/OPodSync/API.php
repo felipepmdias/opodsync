@@ -578,13 +578,42 @@ class API
 		if ($this->method === 'GET') {
 			$since = isset($_GET['since']) ? (int)$_GET['since'] : 0;
 
-			return [
-				'timestamp' => time(),
-				'actions' => $this->queryWithData('SELECT e.url AS episode, e.action, e.data, s.url AS podcast,
+			$to_iso8601 = static function (int $ts): string {
+				return gmdate('Y-m-d\\TH:i:s\\Z', $ts);
+			};
+
+			$actions = $this->queryWithData('SELECT e.url AS episode, e.action, e.data, s.url AS podcast,
 					e.changed AS changed_ts
 					FROM episodes_actions e
 					INNER JOIN subscriptions s ON s.id = e.subscription
-					WHERE e.user = ? AND e.changed >= ?;', $this->user->id, $since)
+					WHERE e.user = ? AND e.changed >= ?;', $this->user->id, $since);
+
+			// Some clients (eg. GNOME Podcasts) require the "started" field to be present.
+			foreach ($actions as &$a) {
+				$ts = null;
+
+				if (!empty($a['timestamp'])) {
+					try {
+						$dt = new \DateTime($a['timestamp'], new \DateTimeZone('UTC'));
+						$ts = $dt->getTimestamp();
+					}
+					catch (\Exception) {
+						$ts = null;
+					}
+				}
+
+				$ts ??= isset($a['changed_ts']) ? (int) $a['changed_ts'] : time();
+
+				$a['timestamp'] ??= $to_iso8601($ts);
+				$a['started'] ??= $a['timestamp'];
+
+				unset($a['changed_ts']);
+			}
+			unset($a);
+
+			return [
+				'timestamp' => time(),
+				'actions' => $actions,
 			];
 		}
 
