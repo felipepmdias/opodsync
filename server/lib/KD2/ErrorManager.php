@@ -760,7 +760,7 @@ class ErrorManager
 	static public function setEnvironment(int $environment): void
 	{
 		self::$enabled = $environment;
-		error_reporting($environment & self::DEVELOPMENT ? -1 : E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+		error_reporting($environment & self::DEVELOPMENT ? -1 : E_ALL & ~E_DEPRECATED);
 
 		if ($environment & self::DEVELOPMENT && PHP_SAPI != 'cli') {
 			self::setHtmlHeader('<!DOCTYPE html><meta charset="utf-8" /><style type="text/css">
