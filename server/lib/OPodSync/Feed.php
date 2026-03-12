@@ -135,7 +135,8 @@ class Feed
 				'pubdate'     => $pubdate ? self::parseDate($pubdate) : null,
 				'title'       => $this->getTagValue($item, 'title'),
 				'description' => $this->getTagValue($item, 'description') ?? $this->getTagValue($item, 'content:encoded'),
-				'duration'    => $this->getDuration($this->getTagValue($item, 'itunes:duration') ?? $this->getTagAttribute($item, 'enclosure', 'length')),
+				// Note: RSS <enclosure length="..."> is the file size in bytes, not a duration.
+				'duration'    => $this->getDuration($this->getTagValue($item, 'itunes:duration')),
 			];
 		}
 
@@ -167,7 +168,7 @@ class Feed
 			$parts = explode(':', $str);
 			$parts = array_map('intval', $parts);
 			$parts = array_pad($parts, -3, 0);
-		$duration = $parts[0] * 3600 + $parts[1] * 60 + $parts[2];
+			$duration = $parts[0] * 3600 + $parts[1] * 60 + $parts[2];
 		}
 		else {
 			$duration = (int) $str;

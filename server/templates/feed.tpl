@@ -32,7 +32,16 @@
 			$title = $episode->title ?: basename(parse_url($episode->media_url, PHP_URL_PATH));
 			$iso_date = $episode->pubdate ? date(DATE_ISO8601, strtotime($episode->pubdate)) : '';
 			$date = $episode->pubdate ? date('d/m/Y', strtotime($episode->pubdate)) : '';
-			$duration = $episode->duration ? sprintf('%d:%02d', floor($episode->duration / 60), $episode->duration % 60) : '';
+			if ($episode->duration) {
+				$seconds = (int) $episode->duration;
+				$hours = (int) floor($seconds / 3600);
+				$minutes = (int) floor(($seconds % 3600) / 60);
+				$secs = (int) ($seconds % 60);
+				$duration = $hours ? sprintf('%d:%02d:%02d', $hours, $minutes, $secs) : sprintf('%d:%02d', $minutes, $secs);
+			}
+			else {
+				$duration = '';
+			}
 			?>
 			<tr>
 				<th scope="row"><a href="{$episode.media_url}">{$title}</a></th>
