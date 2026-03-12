@@ -857,12 +857,20 @@ class API
 			throw new APIException('Invalid set payload', 400);
 		}
 
-		if ($remove !== null && !is_array($remove)) {
+		$set_arr = $set ? get_object_vars($set) : [];
+		if ($remove === null) {
+			$remove_arr = [];
+		}
+		elseif (is_array($remove)) {
+			$remove_arr = array_values($remove);
+		}
+		elseif (is_object($remove)) {
+			// Some clients send an object (eg. {}) instead of an array; accept it.
+			$remove_arr = array_keys(get_object_vars($remove));
+		}
+		else {
 			throw new APIException('Invalid remove payload', 400);
 		}
-
-		$set_arr = $set ? get_object_vars($set) : [];
-		$remove_arr = $remove ? array_values($remove) : [];
 
 		if (count($set_arr) + count($remove_arr) > 200) {
 			throw new APIException('Too many settings in one request', 400);
