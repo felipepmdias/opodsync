@@ -577,16 +577,80 @@ class API
 	{
 		if ($this->method === 'GET') {
 			$since = isset($_GET['since']) ? (int)$_GET['since'] : 0;
+			$podcast = isset($_GET['podcast']) ? (string) $_GET['podcast'] : null;
+			$deviceid = isset($_GET['device']) ? (string) $_GET['device'] : null;
+			$aggregated = isset($_GET['aggregated']) ? filter_var($_GET['aggregated'], FILTER_VALIDATE_BOOLEAN) : false;
+
+			if ($podcast !== null && $podcast !== '') {
+				$this->validateURL($podcast);
+			}
+			else {
+				$podcast = null;
+			}
+
+			if ($deviceid !== null && $deviceid !== '') {
+				if (!preg_match('/^[\w.-]+$/', $deviceid)) {
+					throw new APIException('Invalid device ID', 400);
+				}
+			}
+			else {
+				$deviceid = null;
+			}
 
 			$to_iso8601 = static function (int $ts): string {
 				return gmdate('Y-m-d\\TH:i:s\\Z', $ts);
 			};
 
-			$actions = $this->queryWithData('SELECT e.url AS episode, e.action, e.data, s.url AS podcast,
-					e.changed AS changed_ts
+			$db = DB::getInstance();
+
+			$device_id = null;
+			if ($deviceid !== null) {
+				$device_id = $db->firstColumn('SELECT id FROM devices WHERE deviceid = ? AND user = ?;', $deviceid, $this->user->id);
+
+				// If client requested a device filter but it doesn't exist, return no actions
+				if (!$device_id) {
+					return ['timestamp' => time(), 'actions' => []];
+				}
+			}
+
+			$conditions = ['e.user = ?', 'e.changed >= ?'];
+			$params = [$this->user->id, $since];
+
+			if ($podcast !== null) {
+				$conditions[] = 's.url = ?';
+				$params[] = $podcast;
+			}
+
+			if ($device_id !== null) {
+				$conditions[] = 'e.device = ?';
+				$params[] = $device_id;
+			}
+
+			$where = implode(' AND ', $conditions);
+
+			if ($aggregated) {
+				// Latest action per episode URL
+				$sql = 'SELECT e.url AS episode, e.action, e.data, s.url AS podcast, e.changed AS changed_ts
 					FROM episodes_actions e
 					INNER JOIN subscriptions s ON s.id = e.subscription
-					WHERE e.user = ? AND e.changed >= ?;', $this->user->id, $since);
+					INNER JOIN (
+						SELECT e.url AS episode, MAX(e.changed) AS changed_ts
+						FROM episodes_actions e
+						INNER JOIN subscriptions s ON s.id = e.subscription
+						WHERE ' . $where . '
+						GROUP BY e.url
+					) m ON m.episode = e.url AND m.changed_ts = e.changed
+					WHERE ' . $where . ';';
+			}
+			else {
+				$sql = 'SELECT e.url AS episode, e.action, e.data, s.url AS podcast, e.changed AS changed_ts
+					FROM episodes_actions e
+					INNER JOIN subscriptions s ON s.id = e.subscription
+					WHERE ' . $where . ';';
+			}
+
+			// Params are used twice in aggregated mode (inner and outer WHERE)
+			$actions = $this->queryWithData($sql, ...($aggregated ? array_merge($params, $params) : $params));
 
 			// Some clients (eg. GNOME Podcasts) require the "started" field to be present.
 			foreach ($actions as &$a) {
