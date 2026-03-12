@@ -47,7 +47,21 @@ class GPodder
 
 	public function loginExternal(string $id): void
 	{
-		$r = file_get_contents(rtrim(KARADAV_URL, '/') . '/session.php?id=' . rawurlencode($id));
+		$url = rtrim(KARADAV_URL, '/') . '/session.php';
+
+		if (parse_url(KARADAV_URL, PHP_URL_SCHEME) !== 'https') {
+			throw new \RuntimeException('KARADAV_URL must use HTTPS to protect authentication tokens');
+		}
+
+		$context = stream_context_create([
+			'http' => [
+				'method'  => 'POST',
+				'header'  => 'Content-Type: application/x-www-form-urlencoded',
+				'content' => http_build_query(['id' => $id]),
+			],
+		]);
+
+		$r = file_get_contents($url, false, $context);
 		$r = json_decode($r);
 
 		if (!$r || !isset($r->user->login, $r->user->id)) {
@@ -95,7 +109,10 @@ class GPodder
 		$_SESSION['user'] = $this->user = $user;
 
 		if (!empty($_GET['token'])) {
-			$_SESSION['app_password'] = sprintf('%s:%s', $_GET['token'], sha1($user->password . $_GET['token']));
+			$app_password = bin2hex(random_bytes(32));
+			$db->simple('INSERT INTO app_passwords (user, password_hash) VALUES (?, ?);',
+				$user->id, password_hash($app_password, PASSWORD_DEFAULT));
+			$_SESSION['app_password'] = $app_password;
 		}
 
 		return null;
@@ -199,6 +216,8 @@ class GPodder
 	 */
 	public function generateCaptcha(): string
 	{
+		$this->startSession(true);
+
 		$n = '';
 		$c = '';
 
@@ -208,15 +227,41 @@ class GPodder
 			$n .= sprintf('<b>%d</b><i>%d</i>', random_int(0, 9), $j);
 		}
 
-		$n .= sprintf('<input type="hidden" name="cc" value="%s" />', sha1($c . __DIR__));
+		$_SESSION['captcha'] = $c;
 
 		return $n;
 	}
 
-	public function checkCaptcha(string $captcha, string $check): bool
+	public function checkCaptcha(string $captcha): bool
 	{
-		$captcha = trim($captcha);
-		return sha1($captcha . __DIR__) === $check;
+		$this->startSession(true);
+
+		$expected = $_SESSION['captcha'] ?? null;
+		unset($_SESSION['captcha']);
+
+		if ($expected === null) {
+			return false;
+		}
+
+		return hash_equals($expected, trim($captcha));
+	}
+
+	public function generateCSRFToken(): string
+	{
+		$this->startSession(true);
+
+		if (empty($_SESSION['csrf_token'])) {
+			$_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+		}
+
+		return $_SESSION['csrf_token'];
+	}
+
+	public function checkCSRFToken(): bool
+	{
+		$this->startSession(true);
+		$token = $_POST['csrf_token'] ?? '';
+		return !empty($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
 	}
 
 	public function countActiveSubscriptions(): int
@@ -228,7 +273,7 @@ class GPodder
 	public function listActiveSubscriptions(): array
 	{
 		$db = DB::getInstance();
-		return $db->all('SELECT s.*, COUNT(a.rowid) AS count, f.title, COALESCE(MAX(a.changed), s.changed) AS last_change
+		return $db->all('SELECT s.*, COUNT(a.id) AS count, f.title, COALESCE(MAX(a.changed), s.changed) AS last_change
 			FROM subscriptions s
 				LEFT JOIN episodes_actions a ON a.subscription = s.id
 				LEFT JOIN feeds f ON f.id = s.feed
@@ -328,9 +373,9 @@ class GPodder
 		], ['user', 'url']);
 
 		// Get the subscription ID and fetch feed metadata
-		$subscription = $db->lastInsertRowID();
+		$subscription = $db->lastInsertId();
 		if ($subscription) {
-			$this->updateFeedForSubscription($subscription->id);
+			$this->updateFeedForSubscription((int) $subscription);
 		}
 
 		return null;

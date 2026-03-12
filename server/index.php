@@ -2,6 +2,12 @@
 
 namespace OPodSync;
 
+if (PHP_SAPI === 'cli') {
+	require_once __DIR__ . '/_inc.php';
+	$gpodder->updateAllFeeds(true);
+	exit(0);
+}
+
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
 // Stop here if we are using CLI server and the requested resource exists,
@@ -28,11 +34,6 @@ catch (APIException $e) {
 	return;
 }
 
-if (PHP_SAPI === 'cli') {
-	$gpodder->updateAllFeeds(true);
-	exit(0);
-}
-
 $uri = trim($uri, '/');
 
 // Return 404 is URI is invalid
@@ -48,7 +49,10 @@ if (KARADAV_URL && isset($_GET['ext_sessionid'])) {
 }
 
 if ($gpodder->user) {
-	if (!empty($_POST['enable_token'])) {
+	if (!empty($_POST) && !$gpodder->checkCSRFToken()) {
+		throw new UserException('Invalid form token, please try again');
+	}
+	elseif (!empty($_POST['enable_token'])) {
 		$gpodder->enableToken();
 		header('Location: ./');
 		exit;

@@ -55,6 +55,13 @@ class API
 		foreach ($result as $row) {
 			$row = array_merge(json_decode($row->data, true, 512, JSON_THROW_ON_ERROR), (array) $row);
 			unset($row['data']);
+
+			// Format unix timestamp as ISO 8601 (cross-database compatible)
+			if (isset($row['changed_ts'])) {
+				$row['timestamp'] = gmdate('Y-m-d\TH:i:s\Z', $row['changed_ts']);
+				unset($row['changed_ts']);
+			}
+
 			$out[] = $row;
 		}
 
@@ -120,7 +127,7 @@ class API
 	/**
 	 * @see https://gpoddernet.readthedocs.io/en/latest/api/reference/auth.html
 	 */
-	public function handleAuth(): null
+	public function handleAuth(): void
 	{
 		$this->requireMethod('POST');
 
@@ -279,7 +286,7 @@ class API
 			$r = [
 				'server' => $this->url(),
 				'loginName' => $_SESSION['user']->name,
-				'appPassword' => $_SESSION['app_password'], // FIXME provide a real app-password here
+				'appPassword' => $_SESSION['app_password'],
 			];
 		}
 		// This is not a nextcloud route
@@ -287,8 +294,8 @@ class API
 			return false;
 		}
 
-		if (null !== $r) {
-			echo json_encode($return, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT);
+		if (isset($r)) {
+			echo json_encode($r, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT);
 			return true;
 		}
 
@@ -296,7 +303,7 @@ class API
 			throw new APIException('No username or password provided', 401);
 		}
 
-		$this->debug('Nextcloud compatibility: %s / %s', $_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW']);
+		$this->debug('Nextcloud compatibility: %s', $_SERVER['PHP_AUTH_USER']);
 
 		$db = DB::getInstance();
 		$user = $db->firstRow('SELECT id, password FROM users WHERE name = ?;', $_SERVER['PHP_AUTH_USER']);
@@ -305,12 +312,17 @@ class API
 			throw new APIException('Invalid username', 401);
 		}
 
-		// FIXME store a real app password instead of this hack
-		$token = strtok($_SERVER['PHP_AUTH_PW'], ':');
-		$password = strtok('');
-		$app_password = sha1($user->password . $token);
+		$authenticated = false;
+		$app_passwords = $db->all('SELECT password_hash FROM app_passwords WHERE user = ?;', $user->id);
 
-		if ($app_password !== $password) {
+		foreach ($app_passwords as $ap) {
+			if (password_verify($_SERVER['PHP_AUTH_PW'], $ap->password_hash)) {
+				$authenticated = true;
+				break;
+			}
+		}
+
+		if (!$authenticated) {
 			throw new APIException('Invalid username/password', 401);
 		}
 
@@ -479,27 +491,28 @@ class API
 				throw new APIException('Invalid input: requires an array with one line per feed', 400);
 			}
 
-			$db->exec('BEGIN;');
-			$st = $db->prepare('INSERT OR IGNORE INTO subscriptions (user, url, changed) VALUES (:user, :url, strftime(\'%s\', \'now\'));');
+			$db->begin();
+
+			$ts = time();
 
 			foreach ($lines as $url) {
 				$url = is_object($url) ? $url->feed : $url;
 				$this->validateURL($url);
 
-				$st->bindValue(':url', $url);
-				$st->bindValue(':user', $this->user->id);
-				$st->execute();
-				$st->reset();
-				$st->clear();
+				$db->insertIgnore('subscriptions', [
+					'user'    => $this->user->id,
+					'url'     => $url,
+					'changed' => $ts,
+				]);
 			}
 
-			$db->exec('END;');
+			$db->commit();
 			return null;
 		}
 		elseif ($this->method === 'POST') {
 			$input = $this->getInput();
 
-			$db->exec('BEGIN;');
+			$db->begin();
 
 			$ts = time();
 
@@ -529,7 +542,7 @@ class API
 				}
 			}
 
-			$db->exec('END;');
+			$db->commit();
 			return ['timestamp' => $ts, 'update_urls' => []];
 		}
 
@@ -549,7 +562,7 @@ class API
 			return [
 				'timestamp' => time(),
 				'actions' => $this->queryWithData('SELECT e.url AS episode, e.action, e.data, s.url AS podcast,
-					strftime(\'%Y-%m-%dT%H:%M:%SZ\', e.changed, \'unixepoch\') AS timestamp
+					e.changed AS changed_ts
 					FROM episodes_actions e
 					INNER JOIN subscriptions s ON s.id = e.subscription
 					WHERE e.user = ? AND e.changed >= ?;', $this->user->id, $since)
@@ -565,7 +578,7 @@ class API
 		}
 
 		$db = DB::getInstance();
-		$db->exec('BEGIN;');
+		$db->begin();
 
 		$timestamp = time();
 		$st = $db->prepare('INSERT INTO episodes_actions (user, subscription, device, url, changed, action, data) VALUES (:user, :subscription, :device, :url, :changed, :action, :data);');
@@ -581,8 +594,12 @@ class API
 			$id = $db->firstColumn('SELECT id FROM subscriptions WHERE url = ? AND user = ?;', $action->podcast, $this->user->id);
 
 			if (!$id) {
-				$db->simple('INSERT OR IGNORE INTO subscriptions (user, url, changed) VALUES (?, ?, ?);', $this->user->id, $action->podcast, $timestamp);
-				$id = $db->lastInsertRowID();
+				$db->insertIgnore('subscriptions', [
+					'user'    => $this->user->id,
+					'url'     => $action->podcast,
+					'changed' => $timestamp,
+				]);
+				$id = $db->lastInsertId();
 			}
 
 			if (!empty($action->timestamp)) {
@@ -611,7 +628,7 @@ class API
 			$st->clear();
 		}
 
-		$db->exec('END;');
+		$db->commit();
 
 		return compact('timestamp') + ['update_urls' => []];
 	}

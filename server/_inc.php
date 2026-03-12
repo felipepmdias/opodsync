@@ -35,7 +35,13 @@ $defaults = [
 	'KARADAV_URL'                  => null,
 	'DATA_ROOT'                    => $data_root,
 	'CACHE_ROOT'                   => $data_root . '/cache',
+	'DB_DRIVER'                    => 'sqlite',
 	'DB_FILE'                      => $data_root . '/data.sqlite',
+	'DB_HOST'                      => 'localhost',
+	'DB_USER'                      => null,
+	'DB_PASSWORD'                  => null,
+	'DB_NAME'                      => null,
+	'DB_PORT'                      => 3306,
 	'SQLITE_JOURNAL_MODE'          => 'TRUNCATE',
 	'ERRORS_SHOW'                  => true,
 	'ERRORS_EMAIL'                 => null,
@@ -43,7 +49,7 @@ $defaults = [
 	'ERRORS_REPORT_URL'            => null,
 	'TITLE'                        => 'My oPodSync server',
 	'DEBUG_LOG'                    => null,
-	'HTTP_SCHEME'                  => !empty($_SERVER['HTTPS']) || $_SERVER['SERVER_PORT'] == 443 ? 'https' : 'http',
+	'HTTP_SCHEME'                  => !empty($_SERVER['HTTPS']) || ($_SERVER['SERVER_PORT'] ?? 0) == 443 ? 'https' : 'http',
 ];
 
 foreach ($defaults as $const => $value) {
@@ -89,7 +95,12 @@ if (!is_dir(DATA_ROOT)) {
 
 // Fix issues with badly configured web servers
 if (!isset($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW']) && !empty($_SERVER['HTTP_AUTHORIZATION'])) {
-	@list($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW']) = explode(':', base64_decode(substr($_SERVER['HTTP_AUTHORIZATION'], 6)));
+	if (strncasecmp($_SERVER['HTTP_AUTHORIZATION'], 'Basic ', 6) === 0) {
+		$decoded = base64_decode(substr($_SERVER['HTTP_AUTHORIZATION'], 6), true);
+		if ($decoded !== false && strpos($decoded, ':') !== false) {
+			list($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW']) = explode(':', $decoded, 2);
+		}
+	}
 }
 
 $gpodder = new GPodder;
@@ -102,6 +113,7 @@ $tpl->assign('title', TITLE);
 $tpl->assign('can_update_feeds', !DISABLE_USER_METADATA_UPDATE);
 $tpl->assign('user', $gpodder->user);
 $tpl->assign('url', BASE_URL);
+$tpl->assign('csrf_token', $gpodder->generateCSRFToken());
 $tpl->register_modifier('format_description', [Utils::class, 'format_description']);
 
 

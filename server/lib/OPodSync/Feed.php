@@ -19,6 +19,16 @@ class Feed
 		$this->feed_url = $url;
 	}
 
+	/**
+	 * Parse a date string, normalizing non-standard day abbreviations
+	 * (e.g. "Thurs" -> "Thu", "Tues" -> "Tue") that some feeds use.
+	 */
+	protected static function parseDate(string $str): \DateTime
+	{
+		$str = preg_replace('/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w+,/i', '$1,', $str);
+		return new \DateTime($str);
+	}
+
 	public function load(\stdClass $data): void
 	{
 		foreach ($data as $key => $value) {
@@ -26,7 +36,7 @@ class Feed
 				continue;
 			}
 			elseif ($key === 'pubdate' && $value) {
-				$this->$key = new \DateTime($value);
+				$this->$key = self::parseDate($value);
 			}
 			else {
 				$this->$key = $value;
@@ -37,21 +47,22 @@ class Feed
 	public function sync(): void
 	{
 		$db = DB::getInstance();
-		$db->exec('BEGIN;');
+		$db->begin();
 		$db->upsert('feeds', $this->export(), ['feed_url']);
 		$feed_id = $db->firstColumn('SELECT id FROM feeds WHERE feed_url = ?;', $this->feed_url);
 		$db->simple('UPDATE subscriptions SET feed = ? WHERE url = ?;', $feed_id, $this->feed_url);
 
 		foreach ($this->episodes as $episode) {
+			@set_time_limit(30);
 			$episode = (array) $episode;
-			$episode['pubdate'] = $episode['pubdate']->format('Y-m-d H:i:s \U\T\C');
+			$episode['pubdate'] = $episode['pubdate'] ? $episode['pubdate']->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s') : null;
 			$episode['feed'] = $feed_id;
 			$db->upsert('episodes', $episode, ['feed', 'media_url']);
 			$id = $db->firstColumn('SELECT id FROM episodes WHERE media_url = ?;', $episode['media_url']);
 			$db->simple('UPDATE episodes_actions SET episode = ? WHERE url = ?;', $id, $episode['media_url']);
 		}
 
-		$db->exec('END');
+		$db->commit();
 	}
 
 	public function fetch(): bool
@@ -101,6 +112,11 @@ class Feed
 			return false;
 		}
 
+		return $this->parse($body);
+	}
+
+	public function parse(string $body): bool
+	{
 		while (preg_match('!<item[^>]*>(.*?)</item>!s', $body, $match)) {
 			$body = str_replace($match[0], '', $body);
 			$item = $match[1];
@@ -116,7 +132,7 @@ class Feed
 				'image_url'   => $this->getTagAttribute($item, 'itunes:image', 'href') ?? $this->getTagValue($item, 'image', 'url'),
 				'url'         => $this->getTagValue($item, 'link'),
 				'media_url'   => $url,
-				'pubdate'     => $pubdate ? new \DateTime($pubdate) : null,
+				'pubdate'     => $pubdate ? self::parseDate($pubdate) : null,
 				'title'       => $this->getTagValue($item, 'title'),
 				'description' => $this->getTagValue($item, 'description') ?? $this->getTagValue($item, 'content:encoded'),
 				'duration'    => $this->getDuration($this->getTagValue($item, 'itunes:duration') ?? $this->getTagAttribute($item, 'enclosure', 'length')),
@@ -136,7 +152,7 @@ class Feed
 		$this->description = $this->getTagValue($body, 'description');
 		$this->language = $language ? substr($language, 0, 2) : null;
 		$this->image_url = $this->getTagAttribute($body, 'itunes:image', 'href') ?? $this->getTagValue($body, 'image', 'url');
-		$this->pubdate = $pubdate ? new \DateTime($pubdate) : null;
+		$this->pubdate = $pubdate ? self::parseDate($pubdate) : null;
 
 		return true;
 	}
@@ -150,7 +166,8 @@ class Feed
 		if (false !== strpos($str, ':') && ctype_digit(str_replace(':', '', trim($str)))) {
 			$parts = explode(':', $str);
 			$parts = array_map('intval', $parts);
-			$duration = ($parts[2] ?? 0) * 3600 + ($parts[1] ?? 0) * 60 + $parts[0] ?? 0;
+			$parts = array_pad($parts, -3, 0);
+		$duration = $parts[0] * 3600 + $parts[1] * 60 + $parts[2];
 		}
 		else {
 			$duration = (int) $str;
@@ -200,7 +217,7 @@ class Feed
 	public function export(): array
 	{
 		$out = get_object_vars($this);
-		$out['pubdate'] = $out['pubdate'] ? $out['pubdate']->format('Y-m-d H:i:s \U\T\C') : null;
+		$out['pubdate'] = $out['pubdate'] ? $out['pubdate']->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s') : null;
 		unset($out['episodes']);
 		return $out;
 	}
