@@ -4,7 +4,7 @@ namespace OPodSync;
 
 class DB extends \KD2\DB\DB
 {
-	const VERSION = 20260205;
+	const VERSION = 20260312;
 
 	static protected $instance;
 
@@ -64,6 +64,7 @@ class DB extends \KD2\DB\DB
 		$this->migrate();
 		$this->ensureAppPasswordsTable();
 		$this->ensureLoginTokensTable();
+		$this->ensureSettingsTable();
 	}
 
 	protected function ensureAppPasswordsTable(): void
@@ -85,6 +86,41 @@ class DB extends \KD2\DB\DB
 		}
 
 		$this->exec('CREATE TABLE IF NOT EXISTS login_tokens (token TEXT PRIMARY KEY, user INTEGER NOT NULL, app_password TEXT NOT NULL, created INTEGER NOT NULL);');
+	}
+
+	protected function ensureSettingsTable(): void
+	{
+		if ($this->driver->type === 'mysql') {
+			$this->exec('CREATE TABLE IF NOT EXISTS settings (
+				id INTEGER NOT NULL PRIMARY KEY AUTO_INCREMENT,
+				user INTEGER NOT NULL,
+				scope VARCHAR(16) NOT NULL,
+				deviceid VARCHAR(255) NULL,
+				podcast TEXT NULL,
+				episode TEXT NULL,
+				name VARCHAR(100) NOT NULL,
+				value TEXT NOT NULL,
+				changed INTEGER NOT NULL,
+				UNIQUE KEY settings_unique (user, scope, deviceid, podcast(255), episode(255), name),
+				KEY settings_user_scope (user, scope)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;');
+			return;
+		}
+
+		$this->exec('CREATE TABLE IF NOT EXISTS settings (
+			id INTEGER NOT NULL PRIMARY KEY,
+			user INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+			scope TEXT NOT NULL,
+			deviceid TEXT NULL,
+			podcast TEXT NULL,
+			episode TEXT NULL,
+			name TEXT NOT NULL,
+			value TEXT NOT NULL,
+			changed INTEGER NOT NULL
+		);');
+
+		$this->exec('CREATE UNIQUE INDEX IF NOT EXISTS settings_unique ON settings (user, scope, deviceid, podcast, episode, name);');
+		$this->exec('CREATE INDEX IF NOT EXISTS settings_user_scope ON settings (user, scope);');
 	}
 
 	protected function createSchemaVersionTable(): void
@@ -166,6 +202,7 @@ class DB extends \KD2\DB\DB
 			$this->runSQL(file_get_contents(ROOT . '/sql/sqlite/migration_20260205.sql'));
 		}
 
+		$this->ensureSettingsTable();
 		$this->setSchemaVersion(self::VERSION);
 	}
 

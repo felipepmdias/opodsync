@@ -238,6 +238,7 @@ class API
 			case 'episodes':
 				return $this->episodes();
 			case 'settings':
+				return $this->settings();
 			case 'lists':
 			case 'sync-device':
 				throw new APIException('Not implemented', 503);
@@ -763,6 +764,155 @@ class API
 		$db->commit();
 
 		return compact('timestamp') + ['update_urls' => []];
+	}
+
+	public function settings(): array
+	{
+		$parts = explode('/', trim((string) $this->path, '/'));
+		$scope = $parts[1] ?? null;
+
+		if (!$scope || !in_array($scope, ['account', 'device', 'podcast', 'episode'], true)) {
+			throw new APIException('Invalid scope', 400);
+		}
+
+		$deviceid = isset($_GET['device']) ? (string) $_GET['device'] : null;
+		$podcast = isset($_GET['podcast']) ? (string) $_GET['podcast'] : null;
+		$episode = isset($_GET['episode']) ? (string) $_GET['episode'] : null;
+
+		if ($scope === 'device') {
+			if (!$deviceid || !preg_match('/^[\w.-]+$/', $deviceid)) {
+				throw new APIException('Invalid device ID', 400);
+			}
+		}
+		else {
+			$deviceid = null;
+		}
+
+		if ($scope === 'podcast' || $scope === 'episode') {
+			if (!$podcast) {
+				throw new APIException('Missing podcast parameter', 400);
+			}
+
+			$this->validateURL($podcast);
+		}
+		else {
+			$podcast = null;
+		}
+
+		if ($scope === 'episode') {
+			if (!$episode) {
+				throw new APIException('Missing episode parameter', 400);
+			}
+
+			$this->validateURL($episode);
+		}
+		else {
+			$episode = null;
+		}
+
+		$db = DB::getInstance();
+
+		$get_all = function () use ($db, $scope, $deviceid, $podcast, $episode): array {
+			$out = [];
+			$rows = $db->all('SELECT name, value FROM settings
+				WHERE user = ? AND scope = ?
+					AND (deviceid = ? OR (? IS NULL AND deviceid IS NULL))
+					AND (podcast = ? OR (? IS NULL AND podcast IS NULL))
+					AND (episode = ? OR (? IS NULL AND episode IS NULL))
+				ORDER BY name;',
+				$this->user->id, $scope,
+				$deviceid, $deviceid,
+				$podcast, $podcast,
+				$episode, $episode
+			);
+
+			foreach ($rows as $row) {
+				try {
+					$out[$row->name] = json_decode($row->value, true, 512, JSON_THROW_ON_ERROR);
+				}
+				catch (\JsonException) {
+					$out[$row->name] = null;
+				}
+			}
+
+			return $out;
+		};
+
+		if ($this->method === 'GET') {
+			return $get_all();
+		}
+
+		$this->requireMethod('POST');
+
+		$input = $this->getInput();
+
+		if (!is_object($input)) {
+			throw new APIException('Invalid payload', 400);
+		}
+
+		$set = $input->set ?? null;
+		$remove = $input->remove ?? null;
+
+		if ($set !== null && !is_object($set)) {
+			throw new APIException('Invalid set payload', 400);
+		}
+
+		if ($remove !== null && !is_array($remove)) {
+			throw new APIException('Invalid remove payload', 400);
+		}
+
+		$set_arr = $set ? get_object_vars($set) : [];
+		$remove_arr = $remove ? array_values($remove) : [];
+
+		if (count($set_arr) + count($remove_arr) > 200) {
+			throw new APIException('Too many settings in one request', 400);
+		}
+
+		$now = time();
+		$db->begin();
+
+		foreach ($set_arr as $key => $value) {
+			if (!is_string($key) || $key === '' || strlen($key) > 100) {
+				throw new APIException('Invalid setting key', 400);
+			}
+
+			$json = json_encode($value, JSON_THROW_ON_ERROR);
+
+			if (strlen($json) > 10 * 1024) {
+				throw new APIException('Setting value is too large', 400);
+			}
+
+			$db->upsert('settings', [
+				'user'    => $this->user->id,
+				'scope'   => $scope,
+				'deviceid'=> $deviceid,
+				'podcast' => $podcast,
+				'episode' => $episode,
+				'name'    => $key,
+				'value'   => $json,
+				'changed' => $now,
+			], ['user', 'scope', 'deviceid', 'podcast', 'episode', 'name']);
+		}
+
+		foreach ($remove_arr as $key) {
+			if (!is_string($key) || $key === '' || strlen($key) > 100) {
+				throw new APIException('Invalid setting key', 400);
+			}
+
+			$db->simple('DELETE FROM settings
+				WHERE user = ? AND scope = ? AND name = ?
+					AND (deviceid = ? OR (? IS NULL AND deviceid IS NULL))
+					AND (podcast = ? OR (? IS NULL AND podcast IS NULL))
+					AND (episode = ? OR (? IS NULL AND episode IS NULL));',
+				$this->user->id, $scope, $key,
+				$deviceid, $deviceid,
+				$podcast, $podcast,
+				$episode, $episode
+			);
+		}
+
+		$db->commit();
+		return $get_all();
 	}
 
 	public function opml(array $data): string

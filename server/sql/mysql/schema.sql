@@ -80,3 +80,18 @@ CREATE TABLE app_passwords (
 	password_hash TEXT NOT NULL,
 	created INTEGER NOT NULL DEFAULT (UNIX_TIMESTAMP())
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE settings (
+	id INTEGER NOT NULL PRIMARY KEY AUTO_INCREMENT,
+	user INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+	scope VARCHAR(16) NOT NULL,
+	deviceid VARCHAR(255) NULL,
+	podcast TEXT NULL,
+	episode TEXT NULL,
+	name VARCHAR(100) NOT NULL,
+	value TEXT NOT NULL,
+	changed INTEGER NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE UNIQUE INDEX settings_unique ON settings (user, scope, deviceid, podcast(255), episode(255), name);
+CREATE INDEX settings_user_scope ON settings (user, scope);
