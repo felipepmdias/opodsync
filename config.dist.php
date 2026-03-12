@@ -112,7 +112,7 @@ const DB_FILE = DATA_ROOT . '/data.sqlite';
  * Default: 'TRUNCATE'
  * @var string
  */
-const SQLITE_JOURNAL_MODE = 'TRUNCATE';
+const SQLITE_JOURNAL_MODE = 'WAL';
 
 /**
  * MySQL/MariaDB configuration (only used when DB_DRIVER = 'mysql')
