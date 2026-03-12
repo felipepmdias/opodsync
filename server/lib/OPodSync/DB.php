@@ -63,6 +63,7 @@ class DB extends \KD2\DB\DB
 
 		$this->migrate();
 		$this->ensureAppPasswordsTable();
+		$this->ensureLoginTokensTable();
 	}
 
 	protected function ensureAppPasswordsTable(): void
@@ -74,6 +75,16 @@ class DB extends \KD2\DB\DB
 				$this->runSQL(file_get_contents(ROOT . '/sql/sqlite/migration_20260205.sql'));
 			}
 		}
+	}
+
+	protected function ensureLoginTokensTable(): void
+	{
+		if ($this->driver->type === 'mysql') {
+			$this->exec('CREATE TABLE IF NOT EXISTS login_tokens (token VARCHAR(64) PRIMARY KEY, user INTEGER NOT NULL, app_password VARCHAR(128) NOT NULL, created INTEGER NOT NULL);');
+			return;
+		}
+
+		$this->exec('CREATE TABLE IF NOT EXISTS login_tokens (token TEXT PRIMARY KEY, user INTEGER NOT NULL, app_password TEXT NOT NULL, created INTEGER NOT NULL);');
 	}
 
 	protected function createSchemaVersionTable(): void

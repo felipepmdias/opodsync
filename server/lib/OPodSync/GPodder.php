@@ -109,9 +109,25 @@ class GPodder
 		$_SESSION['user'] = $this->user = $user;
 
 		if (!empty($_GET['token'])) {
+			$token = $_GET['token'];
+			if (!ctype_alnum($token)) {
+				return 'Invalid token';
+			}
+
 			$app_password = bin2hex(random_bytes(32));
 			$db->simple('INSERT INTO app_passwords (user, password_hash) VALUES (?, ?);',
 				$user->id, password_hash($app_password, PASSWORD_DEFAULT));
+
+			// Store the one-time app password server-side keyed by the token.
+			// This avoids relying on PHP sessions (which may not be shared across instances).
+			$db->upsert('login_tokens', [
+				'token'        => $token,
+				'user'         => $user->id,
+				'app_password' => $app_password,
+				'created'      => time(),
+			], ['token']);
+
+			// Keep legacy behavior for single-instance setups
 			$_SESSION['app_password'] = $app_password;
 		}
 

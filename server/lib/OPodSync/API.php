@@ -276,18 +276,37 @@ class API
 				throw new APIException('Invalid token', 400);
 			}
 
-			session_id($_POST['token']);
-			session_start();
+			$db = DB::getInstance();
+			$token = $_POST['token'];
 
-			if (empty($_SESSION['user']) || empty($_SESSION['app_password'])) {
-				throw new APIException('Not logged in yet, using token: ' . $_POST['token'], 404);
+			// Prefer DB-backed storage so polling works even without shared PHP sessions.
+			$row = $db->firstRow('SELECT user, app_password FROM login_tokens WHERE token = ?;', $token);
+
+			if ($row) {
+				$user = $db->firstRow('SELECT name FROM users WHERE id = ?;', $row->user);
+				$db->simple('DELETE FROM login_tokens WHERE token = ?;', $token);
+
+				$r = [
+					'server' => $this->url(),
+					'loginName' => $user->name,
+					'appPassword' => $row->app_password,
+				];
 			}
+			else {
+				// Legacy session-based fallback
+				session_id($token);
+				session_start();
 
-			$r = [
-				'server' => $this->url(),
-				'loginName' => $_SESSION['user']->name,
-				'appPassword' => $_SESSION['app_password'],
-			];
+				if (empty($_SESSION['user']) || empty($_SESSION['app_password'])) {
+					throw new APIException('Not logged in yet, using token: ' . $token, 404);
+				}
+
+				$r = [
+					'server' => $this->url(),
+					'loginName' => $_SESSION['user']->name,
+					'appPassword' => $_SESSION['app_password'],
+				];
+			}
 		}
 		// This is not a nextcloud route
 		elseif (0 !== strpos($url, $nextcloud_path)) {
