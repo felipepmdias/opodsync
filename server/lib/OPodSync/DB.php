@@ -62,6 +62,18 @@ class DB extends \KD2\DB\DB
 		}
 
 		$this->migrate();
+		$this->ensureAppPasswordsTable();
+	}
+
+	protected function ensureAppPasswordsTable(): void
+	{
+		if ($this->driver->type === 'sqlite') {
+			$exists = (bool) $this->firstColumn("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'app_passwords';");
+
+			if (!$exists) {
+				$this->runSQL(file_get_contents(ROOT . '/sql/sqlite/migration_20260205.sql'));
+			}
+		}
 	}
 
 	protected function createSchemaVersionTable(): void

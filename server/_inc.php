@@ -61,11 +61,32 @@ foreach ($defaults as $const => $value) {
 }
 
 if (!defined(__NAMESPACE__ . '\BASE_URL')) {
-	$name = $_SERVER['SERVER_NAME'];
-	$port = !in_array($_SERVER['SERVER_PORT'], [80, 443]) ? ':' . $_SERVER['SERVER_PORT'] : '';
+	// Behind reverse proxies, SERVER_NAME/SERVER_PORT can be the internal bind address
+	// (eg. 0.0.0.0:8080). Prefer forwarded/host headers when present.
+	$host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'];
+
+	// X-Forwarded-Host can be a comma-separated list
+	if (str_contains($host, ',')) {
+		$host = trim(explode(',', $host, 2)[0]);
+	}
+
+	$forwarded_proto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? null;
+	if ($forwarded_proto && str_contains($forwarded_proto, ',')) {
+		$forwarded_proto = trim(explode(',', $forwarded_proto, 2)[0]);
+	}
+
+	$scheme = $forwarded_proto ?: HTTP_SCHEME;
+
+	$server_port = (int) ($_SERVER['HTTP_X_FORWARDED_PORT'] ?? $_SERVER['SERVER_PORT'] ?? 0);
+
+	// If host already contains a port, don't add another one
+	$port = '';
+	if (!str_contains($host, ':') && $server_port && !in_array($server_port, [80, 443], true)) {
+		$port = ':' . $server_port;
+	}
 	$root = '/';
 
-	define(__NAMESPACE__ . '\BASE_URL', sprintf('%s://%s%s%s', HTTP_SCHEME, $name, $port, $root));
+	define(__NAMESPACE__ . '\BASE_URL', sprintf('%s://%s%s%s', $scheme, $host, $port, $root));
 }
 
 if (!ERRORS_SHOW) {
