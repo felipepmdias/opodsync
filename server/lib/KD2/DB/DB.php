@@ -203,7 +203,9 @@ class DB
 					$callback = [$this, $callback[1]];
 				}
 
-				$this->pdo->sqliteCreateFunction($name, $callback);
+				// PHP 8.5+: PDO::sqliteCreateFunction() is deprecated, but still works.
+				// Silence the deprecation while keeping backward compatibility.
+				@$this->pdo->sqliteCreateFunction($name, $callback);
 			}
 
 			// Force to rollback any outstanding transaction
@@ -354,7 +356,9 @@ class DB
 
 		if ($this->pdo)
 		{
-			return $this->pdo->sqliteCreateFunction($name, $callback);
+			// PHP 8.5+: PDO::sqliteCreateFunction() is deprecated, but still works.
+			// Silence the deprecation while keeping backward compatibility.
+			return @$this->pdo->sqliteCreateFunction($name, $callback);
 		}
 		else
 		{
