@@ -673,6 +673,11 @@ class API
 			foreach ($actions as &$a) {
 				$ts = null;
 
+				// If a client sent an empty string device, treat it as "no device".
+				if (isset($a['device']) && is_string($a['device']) && trim($a['device']) === '') {
+					unset($a['device']);
+				}
+
 				if (!empty($a['timestamp'])) {
 					try {
 						$dt = new \DateTime($a['timestamp'], new \DateTimeZone('UTC'));
@@ -739,6 +744,12 @@ class API
 
 			$this->validateURL($action->podcast);
 			$this->validateURL($action->episode);
+
+			// Some clients (e.g. OAuth-based) might omit "device" or send it as an empty string.
+			// Normalize empty values to "unset" so actions are stored and later returned without a device.
+			if (isset($action->device) && is_string($action->device) && trim($action->device) === '') {
+				unset($action->device);
+			}
 
 			$id = $db->firstColumn('SELECT id FROM subscriptions WHERE url = ? AND user = ?;', $action->podcast, $this->user->id);
 
