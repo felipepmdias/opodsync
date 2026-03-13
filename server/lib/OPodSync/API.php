@@ -580,6 +580,7 @@ class API
 			$since = isset($_GET['since']) ? (int)$_GET['since'] : 0;
 			$podcast = isset($_GET['podcast']) ? (string) $_GET['podcast'] : null;
 			$deviceid = isset($_GET['device']) ? (string) $_GET['device'] : null;
+			$action = isset($_GET['action']) ? (string) $_GET['action'] : null;
 			$aggregated = isset($_GET['aggregated']) ? filter_var($_GET['aggregated'], FILTER_VALIDATE_BOOLEAN) : false;
 
 			if ($podcast !== null && $podcast !== '') {
@@ -596,6 +597,16 @@ class API
 			}
 			else {
 				$deviceid = null;
+			}
+
+			if ($action !== null) {
+				$action = strtolower(trim($action));
+				if ($action === '') {
+					$action = null;
+				}
+				elseif (strlen($action) > 50 || !preg_match('/^[a-z][a-z0-9_-]*$/', $action)) {
+					throw new APIException('Invalid action parameter', 400);
+				}
 			}
 
 			$to_iso8601 = static function (int $ts): string {
@@ -625,6 +636,11 @@ class API
 			if ($device_id !== null) {
 				$conditions[] = 'e.device = ?';
 				$params[] = $device_id;
+			}
+
+			if ($action !== null) {
+				$conditions[] = 'e.action = ?';
+				$params[] = $action;
 			}
 
 			$where = implode(' AND ', $conditions);

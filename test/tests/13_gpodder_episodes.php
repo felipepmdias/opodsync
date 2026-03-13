@@ -16,6 +16,22 @@ Test::assert(is_object($r));
 Test::assert(isset($r->actions));
 Test::assert(count($r->actions) === 2);
 
+$r = $http->GET('/api/2/episodes/demo.json?action=download');
+Test::equals(200, $r->status, $r);
+$r = json_decode($r->body);
+Test::assert(is_object($r));
+Test::assert(isset($r->actions));
+Test::assert(count($r->actions) === 1);
+Test::equals('download', $r->actions[0]->action);
+
+$r = $http->GET('/api/2/episodes/demo.json?action=play&podcast=http%3A%2F%2Fexample.org%2Fpodcast.php');
+Test::equals(200, $r->status, $r);
+$r = json_decode($r->body);
+Test::assert(is_object($r));
+Test::assert(isset($r->actions));
+Test::assert(count($r->actions) === 1);
+Test::equals('play', $r->actions[0]->action);
+
 $db = new SQLite3($data_root . '/data.sqlite');
 $res = $db->query('SELECT a.device, d.deviceid, a.user, d.user AS device_user
 	FROM episodes_actions a
