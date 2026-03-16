@@ -725,11 +725,7 @@ class API
 
 		$this->requireMethod('POST');
 
-		$input = $this->getInput();
-
-		if (!is_array($input)) {
-			throw new APIException('No valid array found', 400);
-		}
+		$input = $this->parseEpisodeActionsInput();
 
 		$db = DB::getInstance();
 		$db->begin();
@@ -784,8 +780,17 @@ class API
 			$st->bindValue(':action', $action_name);
 			$st->bindValue(':data', $data);
 			$st->execute();
-			$st->reset();
-			$st->clear();
+
+			// PDOStatement doesn't implement reset()/clear().
+			if (method_exists($st, 'closeCursor')) {
+				$st->closeCursor();
+			}
+			if (method_exists($st, 'reset')) {
+				$st->reset();
+			}
+			if (method_exists($st, 'clear')) {
+				$st->clear();
+			}
 		}
 
 		$db->commit();
@@ -948,6 +953,40 @@ class API
 
 		$db->commit();
 		return $get_all();
+	}
+
+	protected function parseEpisodeActionsInput(): array
+	{
+		$input = trim((string) file_get_contents('php://input'));
+
+		if ($input === '') {
+			return [];
+		}
+
+		try {
+			$payload = json_decode($input, false, 512, JSON_THROW_ON_ERROR);
+		}
+		catch (\JsonException $e) {
+			throw new APIException('Malformed JSON: ' . $e->getMessage(), 400);
+		}
+
+		if (is_array($payload)) {
+			return $payload;
+		}
+
+		if (is_object($payload)) {
+			if (isset($payload->actions) && is_array($payload->actions)) {
+				return $payload->actions;
+			}
+
+			if (isset($payload->episode_actions) && is_array($payload->episode_actions)) {
+				return $payload->episode_actions;
+			}
+
+			return [$payload];
+		}
+
+		throw new APIException('No valid array found', 400);
 	}
 
 	public function opml(array $data): string
